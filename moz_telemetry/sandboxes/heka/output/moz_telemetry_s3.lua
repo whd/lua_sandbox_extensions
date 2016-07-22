@@ -43,6 +43,12 @@ preserve_data       = not flush_on_shutdown -- should always be the inverse of f
 s3_uri             = "s3://foo"
 
 compression         = "zst"
+
+-- The type of storage to use for the object.
+-- Valid choices are:  STANDARD | REDUCED_REDUNDANCY | STANDARD_IA
+-- (default "STANDARD")
+storage_class       = "STANDARD"
+
 ```
 --]]
 
@@ -69,6 +75,11 @@ if compression and compression ~= "zst" and compression ~= "gz" then
     error("compression must be nil, zst or gz")
 end
 
+local storage_class         = read_config("storage_class") or "STANDARD"
+if storage_class and storage_class ~= "STANDARD" and
+   storage_class ~= "REDUCED_REDUNDANCY" and storage_class ~= "STANDARD_IA" then
+     error("storage_class must be STANDARD, REDUCED_REDUNDANCY or STANDARD_IA")
+end
 
 local function get_fqfn(path)
     return string.format("%s/%s", batch_dir, path)
@@ -97,14 +108,14 @@ local function copy_file(path, entry)
     local src  = get_fqfn(path)
     local dim_path = string.gsub(path, "+", "/")
     if compression == "zst" then
-        cmd = string.format("zstd -c %s | aws s3 cp - %s/%s/%d_%d_%s.%s", src,
-                            s3_uri, dim_path, time_t, buffer_cnt, hostname, compression)
+        cmd = string.format("zstd -c %s | aws s3 cp --storage-class %s - %s/%s/%d_%d_%s.%s", src,
+                            storage_class, s3_path, dim_path, time_t, buffer_cnt, hostname, compression)
     elseif compression == "gz" then
-        cmd = string.format("gzip -c %s | aws s3 cp - %s/%s/%d_%d_%s.%s", src,
-                            s3_uri, dim_path, time_t, buffer_cnt, hostname, compression)
+        cmd = string.format("gzip -c %s | aws s3 cp --storage-class %s - %s/%s/%d_%d_%s.%s", src,
+                            storage_class, s3_path, dim_path, time_t, buffer_cnt, hostname, compression)
     else
-        cmd = string.format("aws s3 cp %s %s/%s/%d_%d_%s", src,
-                            s3_uri, dim_path, time_t, buffer_cnt, hostname)
+        cmd = string.format("aws s3 cp %s --storage-class %s %s/%s/%d_%d_%s", src,
+                            storage_class, s3_path, dim_path, time_t, buffer_cnt, hostname)
     end
 
     print(cmd)
