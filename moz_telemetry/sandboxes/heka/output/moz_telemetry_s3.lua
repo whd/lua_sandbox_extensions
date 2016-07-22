@@ -164,6 +164,8 @@ local function get_entry(path)
 end
 
 local dimensions = mts3.validate_dimensions(read_config("dimension_file"))
+-- create the batch directory if it does not exist
+os.execute(string.format("mkdir -p %s", batch_dir))
 
 function process_message()
     local dims = {}
