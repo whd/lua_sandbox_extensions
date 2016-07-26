@@ -9,11 +9,41 @@ require "io"
 require "lpeg"
 require "string"
 require "table"
+require "geoip.city"
+
 local fx = require "fx"
 local dt = require("date_time")
 
 local schema_path   = read_config("schema_path") or error("schema_path must be set")
 local logger        = read_config("Logger")
+
+local city_db = assert(geoip.city.open(read_config("geoip_city_db")))
+local UNK_GEO = "??"
+-- Track the hour to facilitate reopening city_db hourly.
+local hour = math.floor(os.time() / 3600)
+
+local function get_geo_field(xff, remote_addr, field_name, default_value)
+    local geo
+    if xff then
+        local first_addr = string.match(xff, "([^, ]+)")
+        if first_addr then
+            geo = city_db:query_by_addr(first_addr, field_name)
+        end
+    end
+    if geo then return geo end
+    if remote_addr then
+        geo = city_db:query_by_addr(remote_addr, field_name)
+    end
+    return geo or default_value
+end
+
+local function get_geo_country(xff, remote_addr)
+    return get_geo_field(xff, remote_addr, "country_code", UNK_GEO)
+end
+
+local function get_geo_city(xff, remote_addr)
+    return get_geo_field(xff, remote_addr, "city", UNK_GEO)
+end
 
 local schemas = {}
 local function load_schemas()
@@ -228,6 +258,14 @@ end
 function process_message_stream(hsr)
     inject_message(hsr)
 
+    -- Reopen city_db once an hour.
+    local current_hour = math.floor(os.time() / 3600)
+    if current_hour > hour then
+        city_db:close()
+        city_db = assert(geoip.city.open(read_config("geoip_city_db")))
+        hour = current_hour
+    end
+
     local msg, schema = process_uri(hsr)
     if msg then
         msg.Type        = "telemetry"
@@ -240,10 +278,14 @@ function process_message_stream(hsr)
         msg.Fields.Host            = hsr:read_message("Fields[Host]")
         msg.Fields.DNT             = hsr:read_message("Fields[DNT]")
         msg.Fields.Date            = hsr:read_message("Fields[Date]")
-        msg.Fields.geoCountry      = hsr:read_message("Fields[geoCountry]")
-        msg.Fields.geoCity         = hsr:read_message("Fields[geoCity]")
         msg.Fields.submissionDate  = os.date("%Y%m%d", hsr:read_message("Timestamp") / 1e9)
         msg.Fields.sourceName      = "telemetry"
+
+        -- Insert geo info.
+        local xff = hsr:read_message("Fields[X-Forwarded-For]")
+        local remote_addr = hsr:read_message("Fields[RemoteAddr]")
+        msg.Fields.geoCountry = get_geo_country(xff, remote_addr)
+        msg.Fields.geoCity = get_geo_city(xff, remote_addr)
 
         if process_json(hsr, msg, schema) then
             local ok, err = pcall(inject_message, msg)
