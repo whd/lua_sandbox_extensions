@@ -110,13 +110,13 @@ local function copy_file(path, entry)
     local dim_path = string.gsub(path, "+", "/")
     if compression == "zst" then
         cmd = string.format("zstd -c %s | aws s3 cp --storage-class %s - %s/%s/%d_%d_%s.%s", src,
-                            storage_class, s3_path, dim_path, time_t, buffer_cnt, hostname, compression)
+                            storage_class, s3_uri, dim_path, time_t, buffer_cnt, hostname, compression)
     elseif compression == "gz" then
         cmd = string.format("gzip -c %s | aws s3 cp --storage-class %s - %s/%s/%d_%d_%s.%s", src,
-                            storage_class, s3_path, dim_path, time_t, buffer_cnt, hostname, compression)
+                            storage_class, s3_uri, dim_path, time_t, buffer_cnt, hostname, compression)
     else
         cmd = string.format("aws s3 cp %s --storage-class %s %s/%s/%d_%d_%s", src,
-                            storage_class, s3_path, dim_path, time_t, buffer_cnt, hostname)
+                            storage_class, s3_uri, dim_path, time_t, buffer_cnt, hostname)
     end
 
     print(cmd)
