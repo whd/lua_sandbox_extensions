@@ -2,20 +2,24 @@
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-require "hash"
-require "heka_json"
-require "heka_stream_reader"
+require "rjson"
 require "io"
 require "lpeg"
 require "string"
 require "table"
+require "math"
+local crc32 = require "zlib".crc32()
+local mtn   = require "moz_telemetry.normalize"
+local dt    = require "lpeg.date_time"
+require "cjson"
 require "geoip.city"
-
-local fx = require "fx"
-local dt = require("date_time")
 
 local schema_path   = read_config("schema_path") or error("schema_path must be set")
 local logger        = read_config("Logger")
+
+-- the old values for these were Fields[submission] and Fields[Path]
+local content_field = read_config("content_field") or "Fields[content]"
+local uri_field = read_config("content_field") or "Fields[uri]"
 
 local city_db = assert(geoip.city.open(read_config("geoip_city_db")))
 local UNK_GEO = "??"
@@ -54,7 +58,7 @@ local function load_schemas()
     for k,v in pairs(schema_files) do
         local fh = assert(io.input(v))
         local schema = fh:read("*a")
-        schemas[k] = heka_json.parse_schema(schema)
+        schemas[k] = rjson.parse_schema(schema)
     end
 end
 load_schemas()
@@ -118,7 +122,7 @@ Examples:
 local sep           = lpeg.P("/")
 local elem          = lpeg.C((1 - sep)^1)
 local path_grammar  = lpeg.Ct(elem^0 * (sep^0 * elem)^0)
-local hsr           = heka_stream_reader.new("telemetry_extract_dimensions")
+local hsr           = create_stream_reader("telemetry_extract_dimensions")
 
 local function split_path(s)
     if type(s) ~= "string" then return {} end
@@ -128,7 +132,7 @@ end
 
 local function process_uri(hsr)
     -- Path should be of the form: ^/submit/namespace/id[/extra/path/components]$
-    local path = hsr:read_message("Fields[Path]")
+    local path = hsr:read_message(uri_field)
 
     local components = split_path(path)
     if not components or #components < 3 then
@@ -213,7 +217,7 @@ end
 
 
 local function process_json(hsr, msg, schema)
-    local ok, doc = pcall(heka_json.parse_message, hsr, "Fields[submission]")
+    local ok, doc = pcall(rjson.parse_message, hsr, content_field)
     if not ok then
         emsg.Fields.DecodeErrorType = "json"
         emsg.Fields.DecodeError = string.format("invalid submission: %s", doc)
@@ -229,6 +233,7 @@ local function process_json(hsr, msg, schema)
         return false
     end
 
+    msg.Fields.submission           = doc
     msg.Fields.creationTimestamp    = dt.time_to_ns(dt.rfc3339:match(doc:value(doc:find("creationDate"))))
     msg.Fields.reason               = doc:value(doc:find("payload", "info", "reason"))
     msg.Fields.os                   = doc:value(doc:find("environment", "system", "os", "name"))
@@ -237,21 +242,19 @@ local function process_json(hsr, msg, schema)
     msg.Fields.clientId             = doc:value(doc:find("clientId"))
     msg.Fields.sourceVersion        = doc:value(doc:find("version"))
     msg.Fields.docType              = doc:value(doc:find("type"))
-    msg.Fields.sampleId             = hash.crc32(msg.Fields.clientId) % 100
+    msg.Fields.sampleId             = crc32(msg.Fields.clientId) % 100
 
     local app = doc:find("application")
     msg.Fields.appName              = doc:value(doc:find(app, "name"))
     msg.Fields.appVersion           = doc:value(doc:find(app, "version"))
     msg.Fields.appBuildId           = doc:value(doc:find(app, "buildId"))
     msg.Fields.appUpdateChannel     = doc:value(doc:find(app, "channel"))
-    msg.Fields.normalizedChannel    = fx.normalize_channel(msg.Fields.appUpdateChannel)
+    msg.Fields.normalizedChannel    = mtn.channel(msg.Fields.appUpdateChannel)
     msg.Fields.appVendor            = doc:value(doc:find(app, "vendor"))
 
     remove_objects(msg, doc, "environment", environment_objects)
     remove_objects(msg, doc, "payload", extract_payload_objects[msg.Fields.docType])
 
-    -- store the remainder in the original submission field
-    msg.Fields.submission = doc:remove()
     return true
 end
 
