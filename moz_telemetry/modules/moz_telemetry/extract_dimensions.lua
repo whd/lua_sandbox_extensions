@@ -219,6 +219,9 @@ local function process_json(hsr, msg, schema)
 
     remove_objects(msg, doc, "environment", environment_objects)
     remove_objects(msg, doc, "payload", extract_payload_objects[msg.Fields.docType])
+
+    -- store the remainder in the original submission field
+    msg.Fields.submission = doc:remove()
     return true
 end
 

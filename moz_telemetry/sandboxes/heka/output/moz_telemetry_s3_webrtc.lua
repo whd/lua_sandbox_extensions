@@ -179,7 +179,7 @@ local dimensions = mts3.validate_dimensions(read_config("dimension_file"))
 os.execute(string.format("mkdir -p %s", batch_dir))
 
 function process_message()
-    local ok, json = pcall(cjson.decode, read_message("Payload"))
+    local ok, json = pcall(cjson.decode, read_message("Fields[submission]"))
     if not ok then return -1, json end
     local p = json["payload"] or {}
     local found = check_payload(p)
