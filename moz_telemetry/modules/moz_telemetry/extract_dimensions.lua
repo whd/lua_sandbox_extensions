@@ -242,7 +242,7 @@ function process_message_stream(hsr)
         msg.Fields.Date            = hsr:read_message("Fields[Date]")
         msg.Fields.geoCountry      = hsr:read_message("Fields[geoCountry]")
         msg.Fields.geoCity         = hsr:read_message("Fields[geoCity]")
-        msg.Fields.submissionDate  = hsr:read_message("Fields[submissionDate]")
+        msg.Fields.submissionDate  = os.date("%Y%m%d", hsr:read_message("Timestamp") / 1e9)
         msg.Fields.sourceName      = "telemetry"
 
         if process_json(hsr, msg, schema) then
