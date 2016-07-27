@@ -2,29 +2,68 @@
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-require "rjson"
-require "io"
-require "lpeg"
-require "string"
-require "table"
-require "math"
-local crc32 = require "zlib".crc32()
-local mtn   = require "moz_telemetry.normalize"
-local dt    = require "lpeg.date_time"
-require "cjson"
-require "geoip.city"
+--[[
+# Mozilla Telemetry Decoder Module
+
+## Functions
+
+### process_message_stream
+
+Decode and inject the message using the provided stream reader
+
+*Arguments*
+- hsr (hsr) - stream reader with the message to process
+
+*Return*
+- 0 (number) or error
+
+### process_message_string
+
+Decode and inject the message given as argument, using a module-internal stream reader
+
+*Arguments*
+- msg (string) - binary message to decode
+
+*Return*
+- 0 (number) or error
+
+--]]
+
+-- Imports
+local rjson  = require "rjson"
+local io     = require "io"
+local lpeg   = require "lpeg"
+local string = require "string"
+local table  = require "table"
+local os     = require "os"
+local floor  = require "math".floor
+local crc32  = require "zlib".crc32()
+local mtn    = require "moz_telemetry.normalize"
+local dt     = require "lpeg.date_time"
+local geoip  = require "geoip.city"
+
+local read_config          = read_config
+local assert               = assert
+local pairs                = pairs
+local ipairs               = ipairs
+local create_stream_reader = create_stream_reader
+local inject_message	   = inject_message
+local type                 = type
+local pcall                = pcall
+
+local M = {}
+setfenv(1, M) -- Remove external access to contain everything in the module
 
 local schema_path   = read_config("schema_path") or error("schema_path must be set")
-local logger        = read_config("Logger")
 
 -- the old values for these were Fields[submission] and Fields[Path]
 local content_field = read_config("content_field") or "Fields[content]"
 local uri_field = read_config("content_field") or "Fields[uri]"
 
-local city_db = assert(geoip.city.open(read_config("geoip_city_db")))
+local city_db = assert(geoip.open(read_config("geoip_city_db")))
 local UNK_GEO = "??"
 -- Track the hour to facilitate reopening city_db hourly.
-local hour = math.floor(os.time() / 3600)
+local hour = floor(os.time() / 3600)
 
 local function get_geo_field(xff, remote_addr, field_name, default_value)
     local geo
@@ -259,13 +298,14 @@ local function process_json(hsr, msg, schema)
 end
 
 function process_message_stream(hsr)
-    inject_message(hsr)
+    -- duplicate the raw message
+    pcall(inject_message, hsr)
 
-    -- Reopen city_db once an hour.
-    local current_hour = math.floor(os.time() / 3600)
+    -- reopen city_db once an hour
+    local current_hour = floor(os.time() / 3600)
     if current_hour > hour then
         city_db:close()
-        city_db = assert(geoip.city.open(read_config("geoip_city_db")))
+        city_db = assert(geoip.open(read_config("geoip_city_db")))
         hour = current_hour
     end
 
@@ -281,14 +321,18 @@ function process_message_stream(hsr)
         msg.Fields.Host            = hsr:read_message("Fields[Host]")
         msg.Fields.DNT             = hsr:read_message("Fields[DNT]")
         msg.Fields.Date            = hsr:read_message("Fields[Date]")
+        msg.Fields.geoCountry      = hsr:read_message("Fields[geoCountry]")
+        msg.Fields.geoCity         = hsr:read_message("Fields[geoCity]")
         msg.Fields.submissionDate  = os.date("%Y%m%d", hsr:read_message("Timestamp") / 1e9)
         msg.Fields.sourceName      = "telemetry"
 
-        -- Insert geo info.
-        local xff = hsr:read_message("Fields[X-Forwarded-For]")
-        local remote_addr = hsr:read_message("Fields[RemoteAddr]")
-        msg.Fields.geoCountry = get_geo_country(xff, remote_addr)
-        msg.Fields.geoCity = get_geo_city(xff, remote_addr)
+        -- insert geo info if necessary
+        if not msg.Fields.geoCountry then
+            local xff = hsr:read_message("Fields[X-Forwarded-For]")
+            local remote_addr = hsr:read_message("Fields[RemoteAddr]")
+            msg.Fields.geoCountry = get_geo_country(xff, remote_addr)
+            msg.Fields.geoCity = get_geo_city(xff, remote_addr)
+        end
 
         if process_json(hsr, msg, schema) then
             local ok, err = pcall(inject_message, msg)
@@ -299,9 +343,13 @@ function process_message_stream(hsr)
             end
         end
     end
+
+    return 0
 end
 
 function process_message_string(msg)
     hsr:decode_message(msg)
-    process_message_stream(hsr)
+    return process_message_stream(hsr)
 end
+
+return M
