@@ -7,7 +7,7 @@
 
 ## Functions
 
-### process_message_stream
+### decode_message_stream
 
 Decode and inject the message using the provided stream reader
 
@@ -15,9 +15,9 @@ Decode and inject the message using the provided stream reader
 - hsr (hsr) - stream reader with the message to process
 
 *Return*
-- 0 (number) or error
+- none, injects an error message on decode failure
 
-### process_message_string
+### decode_message_string
 
 Decode and inject the message given as argument, using a module-internal stream reader
 
@@ -25,7 +25,7 @@ Decode and inject the message given as argument, using a module-internal stream 
 - msg (string) - binary message to decode
 
 *Return*
-- 0 (number) or error
+- none, injects an error message on decode failure
 
 --]]
 
@@ -47,7 +47,7 @@ local assert               = assert
 local pairs                = pairs
 local ipairs               = ipairs
 local create_stream_reader = create_stream_reader
-local inject_message	   = inject_message
+local inject_message       = inject_message
 local type                 = type
 local pcall                = pcall
 
@@ -297,7 +297,7 @@ local function process_json(hsr, msg, schema)
     return true
 end
 
-function process_message_stream(hsr)
+function decode_message_stream(hsr)
     -- duplicate the raw message
     pcall(inject_message, hsr)
 
@@ -343,13 +343,11 @@ function process_message_stream(hsr)
             end
         end
     end
-
-    return 0
 end
 
-function process_message_string(msg)
+function decode_message_string(msg)
     hsr:decode_message(msg)
-    return process_message_stream(hsr)
+    decode_message_stream(hsr)
 end
 
 return M
