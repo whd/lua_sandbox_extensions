@@ -60,7 +60,11 @@ local schema_path   = read_config("schema_path") or error("schema_path must be s
 local content_field = read_config("content_field") or "Fields[content]"
 local uri_field = read_config("content_field") or "Fields[uri]"
 
-local city_db = assert(geoip.open(read_config("geoip_city_db")))
+local city_db_file = read_config("geoip_city_db")
+local city_db = nil
+if city_db_file then
+    city_db = assert(geoip.open(city_db_file))
+end
 local UNK_GEO = "??"
 -- Track the hour to facilitate reopening city_db hourly.
 local hour = floor(os.time() / 3600)
@@ -301,12 +305,14 @@ function decode_message_stream(hsr)
     -- duplicate the raw message
     pcall(inject_message, hsr)
 
-    -- reopen city_db once an hour
-    local current_hour = floor(os.time() / 3600)
-    if current_hour > hour then
-        city_db:close()
-        city_db = assert(geoip.open(read_config("geoip_city_db")))
-        hour = current_hour
+    if city_db then
+        -- reopen city_db once an hour
+        local current_hour = floor(os.time() / 3600)
+        if current_hour > hour then
+            city_db:close()
+            city_db = assert(geoip.open(city_db_file))
+            hour = current_hour
+        end
     end
 
     local msg, schema = process_uri(hsr)
@@ -327,7 +333,7 @@ function decode_message_stream(hsr)
         msg.Fields.sourceName      = "telemetry"
 
         -- insert geo info if necessary
-        if not msg.Fields.geoCountry then
+        if city_db and not msg.Fields.geoCountry then
             local xff = hsr:read_message("Fields[X-Forwarded-For]")
             local remote_addr = hsr:read_message("Fields[RemoteAddr]")
             msg.Fields.geoCountry = get_geo_country(xff, remote_addr)
