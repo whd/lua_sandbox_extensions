@@ -49,6 +49,9 @@ compression         = "zst"
 -- (default "STANDARD")
 storage_class       = "STANDARD"
 
+-- Specify a module to filter incoming messages via its filter_message function.
+-- Default is to not filter messages.
+filter_module = nil
 ```
 --]]
 
@@ -79,6 +82,15 @@ local storage_class         = read_config("storage_class") or "STANDARD"
 if storage_class and storage_class ~= "STANDARD" and
    storage_class ~= "REDUCED_REDUNDANCY" and storage_class ~= "STANDARD_IA" then
      error("storage_class must be STANDARD, REDUCED_REDUNDANCY or STANDARD_IA")
+end
+
+local filter_module         = read_config("filter_module")
+local filter                = false
+if filter_module then
+    filter = require(filter_module).filter_message
+    if not filter then
+        error(filter_module .. " does not provide a filter_message function")
+    end
 end
 
 local function get_fqfn(path)
@@ -168,6 +180,7 @@ local dimensions = mts3.validate_dimensions(read_config("dimension_file"))
 os.execute(string.format("mkdir -p %s", batch_dir))
 
 function process_message()
+    if filter and not filter() then return 0 end
     local dims = {}
     for i,d in ipairs(dimensions) do
         local v = mts3.sanitize_dimension(read_message(d.field_name))
