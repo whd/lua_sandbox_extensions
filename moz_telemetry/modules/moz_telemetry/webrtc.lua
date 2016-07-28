@@ -23,6 +23,9 @@ Return false if the message contains a WebRTC payload, true otherwise.
 local cjson = require "cjson"
 local type = type
 local read_message = read_message
+local pcall = pcall
+local next = next
+local ipairs = ipairs
 
 local M = {}
 setfenv(1, M) -- Remove external access to contain everything in the module
