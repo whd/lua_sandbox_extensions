@@ -48,6 +48,7 @@ local ipairs               = ipairs
 local create_stream_reader = create_stream_reader
 local inject_message       = inject_message
 local type                 = type
+local tostring             = tostring
 local pcall                = pcall
 
 local geoip
