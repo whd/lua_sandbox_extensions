@@ -185,7 +185,7 @@ if ret ~= 0 then
 end
 
 function process_message()
-    if filter and not filter() then return 0 end
+    if filter and filter() then return 0 end
     local dims = {}
     for i,d in ipairs(dimensions) do
         local v = mts3.sanitize_dimension(read_message(d.field_name))
