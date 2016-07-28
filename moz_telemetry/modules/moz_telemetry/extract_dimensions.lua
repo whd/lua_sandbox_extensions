@@ -40,7 +40,6 @@ local floor  = require "math".floor
 local crc32  = require "zlib".crc32()
 local mtn    = require "moz_telemetry.normalize"
 local dt     = require "lpeg.date_time"
-local geoip  = require "geoip.city"
 
 local read_config          = read_config
 local assert               = assert
@@ -51,6 +50,10 @@ local inject_message       = inject_message
 local type                 = type
 local pcall                = pcall
 
+local geoip
+local city_db_file = read_config("geoip_city_db")
+if city_db_file then geoip = require "geoip.city" end
+
 local M = {}
 setfenv(1, M) -- Remove external access to contain everything in the module
 
@@ -60,11 +63,7 @@ local schema_path   = read_config("schema_path") or error("schema_path must be s
 local content_field = read_config("content_field") or "Fields[content]"
 local uri_field = read_config("content_field") or "Fields[uri]"
 
-local city_db_file = read_config("geoip_city_db")
-local city_db = nil
-if city_db_file then
-    city_db = assert(geoip.open(city_db_file))
-end
+local city_db = geoip and assert(geoip.open(city_db_file))
 local UNK_GEO = "??"
 -- Track the hour to facilitate reopening city_db hourly.
 local hour = floor(os.time() / 3600)
@@ -305,7 +304,7 @@ function decode_message_stream(hsr)
     -- duplicate the raw message
     pcall(inject_message, hsr)
 
-    if city_db then
+    if geoip then
         -- reopen city_db once an hour
         local current_hour = floor(os.time() / 3600)
         if current_hour > hour then
