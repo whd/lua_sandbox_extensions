@@ -97,6 +97,7 @@ local function load_schemas()
     local schema_files = {
         main    = string.format("%s/telemetry/main.schema.json", schema_path),
         crash   = string.format("%s/telemetry/crash.schema.json", schema_path),
+        core    = string.format("%s/telemetry/core.schema.json", schema_path),
         }
     for k,v in pairs(schema_files) do
         local fh = assert(io.input(v))
