@@ -79,8 +79,9 @@ if compression and compression ~= "zst" and compression ~= "gz" then
 end
 
 local storage_class         = read_config("storage_class") or "STANDARD"
-if storage_class and storage_class ~= "STANDARD" and
-   storage_class ~= "REDUCED_REDUNDANCY" and storage_class ~= "STANDARD_IA" then
+if storage_class ~= "STANDARD" and
+   storage_class ~= "REDUCED_REDUNDANCY" and 
+   storage_class ~= "STANDARD_IA" then
      error("storage_class must be STANDARD, REDUCED_REDUNDANCY or STANDARD_IA")
 end
 
@@ -177,7 +178,11 @@ end
 
 local dimensions = mts3.validate_dimensions(read_config("dimension_file"))
 -- create the batch directory if it does not exist
-os.execute(string.format("mkdir -p %s", batch_dir))
+local cmd = string.format("mkdir -p %s", batch_dir)
+local ret = os.execute(cmd)
+if ret ~= 0 then
+    error(string.format("ret: %d, cmd: %s", ret, cmd))
+end
 
 function process_message()
     if filter and not filter() then return 0 end
