@@ -145,7 +145,7 @@ local environment_objects = {
     }
 
 local emsg = {
-    Logger = read_config("Logger"),
+    Logger = "telemetry",
     Hostname = read_config("Hostname"),
     Type = "telemetry.error",
     Fields = {
