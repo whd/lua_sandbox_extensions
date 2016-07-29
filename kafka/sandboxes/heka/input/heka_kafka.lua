@@ -31,10 +31,9 @@ topic_conf = {
     -- ["offset.store.method"] = "broker, -- cannot be overridden
 }
 
--- Specify a module to pass decode and inject to via its decode_message_string function.
+-- Specify a module to pass decode and inject to via its decode function.
 -- Default is to use inject_message.
 decoder_module = nil
-
 ```
 --]]
 local brokerlist     = read_config("brokerlist") or error("brokerlist must be set")
@@ -44,9 +43,9 @@ local topic_conf     = read_config("topic_conf")
 local decoder_module = read_config("decoder_module")
 local inject         = inject_message
 if decoder_module then
-    inject = require(decoder_module).decode_message_string
+    inject = require(decoder_module).decode
     if not inject then
-        error(decoder_module .. " does not provide a decode_message_string function")
+        error(decoder_module .. " does not provide a decode function")
     end
 end
 

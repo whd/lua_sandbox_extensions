@@ -7,16 +7,15 @@
 
 ## Functions
 
-### filter_message
+### encode
 
-Return false if the message contains a WebRTC payload, true otherwise.
+Encodes a Mozilla telemetry message if it contains a WebRTC payload.
 
 *Arguments*
-- none, called in the context of an output's process_message
+- none
 
 *Return*
-- bool (boolean) false if the current message contains a WebRTC payload
-
+- msg (string) or nil if the message does not contain a WebRTC payload.
 --]]
 
 -- Imports
@@ -40,7 +39,7 @@ local function check_payload (payload)
     return false
 end
 
-function filter_message ()
+local function filter_message ()
     local ok, json = pcall(cjson.decode, read_message("Fields[submission]"))
     if not ok then return false end
     local p = json["payload"] or {}
@@ -58,6 +57,14 @@ function filter_message ()
         end
     end
     return not found
+end
+
+function encode ()
+    if filter_message() then
+        return nil
+    else
+        return read_message("framed")
+    end
 end
 
 return M

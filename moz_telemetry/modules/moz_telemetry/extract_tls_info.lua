@@ -9,9 +9,9 @@ reports.
 
 ## Functions
 
-### decode_message_stream
+### transform_message
 
-Decode and inject the message using the provided stream reader
+Transform and inject the message using the provided stream reader
 
 *Arguments*
 - hsr (hsr) - stream reader with the message to process
@@ -19,7 +19,7 @@ Decode and inject the message using the provided stream reader
 *Return*
 - none, injects an error message on decode failure
 
-### decode_message_string
+### decode
 
 Decode and inject the message given as argument, using a module-internal stream reader
 
@@ -96,7 +96,7 @@ local function parse_cert(cert)
   return pcall(cert.parse, cert)
 end
 
-function decode_message_stream(hsr)
+function transform_message(hsr)
     -- duplicate the raw message
     pcall(inject_message, hsr)
 
@@ -185,9 +185,9 @@ function decode_message_stream(hsr)
     return 0
 end
 
-function decode_message_string(msg)
+function decode(msg)
     hsr:decode_message(msg)
-    decode_message_stream(hsr)
+    transform_message(hsr)
 end
 
 return M

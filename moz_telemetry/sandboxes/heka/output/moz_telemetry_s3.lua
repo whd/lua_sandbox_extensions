@@ -49,9 +49,8 @@ compression         = "zst"
 -- (default "STANDARD")
 storage_class       = "STANDARD"
 
--- Specify a module to filter incoming messages via its filter_message function.
--- Default is to not filter messages.
-filter_module = nil
+-- Specify an optional module to encode incoming messages via its encode function.
+encoder_module = nil
 ```
 --]]
 
@@ -85,12 +84,12 @@ if storage_class ~= "STANDARD" and
      error("storage_class must be STANDARD, REDUCED_REDUNDANCY or STANDARD_IA")
 end
 
-local filter_module         = read_config("filter_module")
-local filter                = false
-if filter_module then
-    filter = require(filter_module).filter_message
-    if not filter then
-        error(filter_module .. " does not provide a filter_message function")
+local encoder_module        = read_config("encoder_module")
+local encode                = false
+if encoder_module then
+    encode = require(encoder_module).encode
+    if not encode then
+        error(encoder_module .. " does not provide a encode function")
     end
 end
 
@@ -185,7 +184,6 @@ if ret ~= 0 then
 end
 
 function process_message()
-    if filter and filter() then return 0 end
     local dims = {}
     for i,d in ipairs(dimensions) do
         local v = mts3.sanitize_dimension(read_message(d.field_name))
@@ -202,7 +200,9 @@ function process_message()
     local path = table.concat(dims, "+") -- the plus will be converted to a path separator '/' on copy
     local entry = get_entry(path)
     local fh = entry[2]
-    fh:write(read_message("framed"))
+    local encoded = (encoder and encode()) or read_message("framed")
+    if not encoded then return 0 end
+    fh:write(encoded)
     local size = fh:seek()
     if size >= max_file_size then
         local err = copy_file(path, entry)
