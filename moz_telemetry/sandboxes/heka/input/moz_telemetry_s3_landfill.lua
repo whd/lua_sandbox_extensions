@@ -16,16 +16,18 @@ s3_bucket       = "net-mozaws-prod-us-west-2-pipeline-data"
 s3_file_list    = "landfill_dims.ls.1"
 tmp_dir         = "/mnt/work/tmp"
 schema_path     = "./mozilla-pipeline-schemas"
+passthru        = false -- if true the raw message is injected as-is (nginx_moz_ingest test)
 ```
 --]]
 
 require "io"
 require "string"
-local pms   = require "moz_telemetry.extract_dimensions".process_message_stream
+local tm = require "moz_telemetry.extract_dimensions".transform_message
 
 local tmp_dir       = read_config("tmp_dir")
 local s3_bucket     = read_config("s3_bucket") or error("s3_bucket must be set")
 local logger        = read_config("Logger")
+local passthru      = read_config("passthru")
 local s3_file_list  = assert(io.open(read_config("s3_file_list")))
 
 local function process_file(hsr, fn)
@@ -40,7 +42,12 @@ local function process_file(hsr, fn)
         repeat
             found, consumed, read = hsr:find_message(fh)
             if found then
-                pms(hsr)
+                if passthru then
+                    inject_message(hsr)
+                else
+                    tm(hsr)
+                end
+
             end
         until not found
     until read == 0

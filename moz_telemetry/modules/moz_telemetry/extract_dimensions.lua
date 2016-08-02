@@ -5,11 +5,27 @@
 --[[
 # Mozilla Telemetry Decoder Module
 
+## decoder_cfg Table
+```lua
+-- String used to specify the schema location on disk.
+schema_path = "/mnt/work/schemas"
+
+-- String used to specify the message field containing the user submitted telemetry ping.
+content_field = "Fields[content]" -- optional, default shown
+
+-- String used to specify the message field containing the URI of the submitted telemetry ping.
+uri_field = "Fields[uri]" -- optional, default shown
+
+-- String used to specify GeoIP city database location on disk.
+city_db_file = "/mnt/work/geoip/city.db" -- optional, if not specified no geoip lookup is performed
+
+```
+
 ## Functions
 
 ### transform_message
 
-Transform and inject the message using the provided stream reader
+Transform and inject the message using the provided stream reader.
 
 *Arguments*
 - hsr (hsr) - stream reader with the message to process
@@ -19,14 +35,13 @@ Transform and inject the message using the provided stream reader
 
 ### decode
 
-Decode and inject the message given as argument, using a module-internal stream reader
+Decode and inject the message given as argument, using a module-internal stream reader.
 
 *Arguments*
 - msg (string) - binary message to decode
 
 *Return*
 - none, injects an error message on decode failure
-
 --]]
 
 -- Imports
@@ -50,21 +65,32 @@ local inject_message       = inject_message
 local type                 = type
 local tostring             = tostring
 local pcall                = pcall
-
 local geoip
-local city_db_file = read_config("geoip_city_db")
-if city_db_file then geoip = require "geoip.city" end
+local city_db
+
+-- create before the environment is locked down since it conditionally includes a module
+local function load_decoder_cfg()
+    local cfg = read_config("decoder_cfg")
+    assert(type(cfg) == "table", "decoder_cfg must be a table")
+    assert(type(cfg.schema_path) == "string", "schema_path must be set")
+
+    -- the old values for these were Fields[submission] and Fields[Path]
+    if not cfg.content_field then cfg.content_field = "Fields[content]" end
+    if not cfg.uri_field then cfg.uri_field = "Fields[uri]" end
+
+    if city_db_file then 
+        geoip = require "geoip.city"
+        city_db = assert(geoip.open(cfg.city_db_file))
+    end
+
+    return cfg
+end
+
 
 local M = {}
 setfenv(1, M) -- Remove external access to contain everything in the module
 
-local schema_path   = read_config("schema_path") or error("schema_path must be set")
-
--- the old values for these were Fields[submission] and Fields[Path]
-local content_field = read_config("content_field") or "Fields[content]"
-local uri_field = read_config("content_field") or "Fields[uri]"
-
-local city_db = geoip and assert(geoip.open(city_db_file))
+local cfg = load_decoder_cfg()
 local UNK_GEO = "??"
 -- Track the hour to facilitate reopening city_db hourly.
 local hour = floor(os.time() / 3600)
@@ -95,9 +121,9 @@ end
 local schemas = {}
 local function load_schemas()
     local schema_files = {
-        main    = string.format("%s/telemetry/main.schema.json", schema_path),
-        crash   = string.format("%s/telemetry/crash.schema.json", schema_path),
-        core    = string.format("%s/telemetry/core.schema.json", schema_path),
+        main    = string.format("%s/telemetry/main.schema.json", cfg.schema_path),
+        crash   = string.format("%s/telemetry/crash.schema.json", cfg.schema_path),
+        core    = string.format("%s/telemetry/core.schema.json", cfg.schema_path),
         }
     for k,v in pairs(schema_files) do
         local fh = assert(io.input(v))
@@ -176,7 +202,7 @@ end
 
 local function process_uri(hsr)
     -- Path should be of the form: ^/submit/namespace/id[/extra/path/components]$
-    local path = hsr:read_message(uri_field)
+    local path = hsr:read_message(cfg.uri_field)
 
     local components = split_path(path)
     if not components or #components < 3 then
@@ -195,8 +221,8 @@ local function process_uri(hsr)
     end
 
     local namespace = table.remove(components, 1)
-    local cfg = uri_config[namespace]
-    if not cfg then
+    local ucfg = uri_config[namespace]
+    if not ucfg then
         emsg.Fields.DecodeErrorType = "uri"
         emsg.Fields.DecodeError = string.format("Invalid namespace: '%s' in %s", namespace, path)
         pcall(inject_message, emsg)
@@ -204,21 +230,21 @@ local function process_uri(hsr)
     end
 
     local pathLength = string.len(path)
-    if pathLength > cfg.max_path_length then
+    if pathLength > ucfg.max_path_length then
         emsg.Fields.DecodeErrorType = "uri"
-        emsg.Fields.DecodeError = string.format("Path too long: %d > %d", pathLength, cfg.max_path_length)
+        emsg.Fields.DecodeError = string.format("Path too long: %d > %d", pathLength, ucfg.max_path_length)
         pcall(inject_message, emsg)
         return
     end
 
     local msg = {
-        Logger = cfg.logger or namespace,
+        Logger = ucfg.logger or namespace,
         Fields = {documentId = table.remove(components, 1)},
         }
 
     local num_components = #components
     if num_components > 0 then
-        local dims = cfg.dimensions
+        local dims = ucfg.dimensions
         if dims and #dims >= num_components then
             for i=1,num_components do
                 msg.Fields[dims[i]] = components[i]
@@ -261,7 +287,7 @@ end
 
 
 local function process_json(hsr, msg, schema)
-    local ok, doc = pcall(rjson.parse_message, hsr, content_field)
+    local ok, doc = pcall(rjson.parse_message, hsr, cfg.content_field)
     if not ok then
         emsg.Fields.DecodeErrorType = "json"
         emsg.Fields.DecodeError = string.format("invalid submission: %s", doc)
@@ -278,7 +304,10 @@ local function process_json(hsr, msg, schema)
     end
 
     msg.Fields.submission           = doc
-    msg.Fields.creationTimestamp    = dt.time_to_ns(dt.rfc3339:match(doc:value(doc:find("creationDate"))))
+    local cts = doc:value(doc:find("creationDate"))
+    if cts then
+        msg.Fields.creationTimestamp = dt.time_to_ns(dt.rfc3339:match(cts))
+    end
     msg.Fields.reason               = doc:value(doc:find("payload", "info", "reason"))
     msg.Fields.os                   = doc:value(doc:find("environment", "system", "os", "name"))
     msg.Fields.telemetryEnabled     = doc:value(doc:find("environment", "settings", "telemetryEnabled"))
@@ -311,7 +340,7 @@ function transform_message(hsr)
         local current_hour = floor(os.time() / 3600)
         if current_hour > hour then
             city_db:close()
-            city_db = assert(geoip.open(city_db_file))
+            city_db = assert(geoip.open(cfg.city_db_file))
             hour = current_hour
         end
     end
