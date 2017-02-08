@@ -130,21 +130,19 @@ local function get_geo_city(xff, remote_addr)
 end
 
 local schemas = {}
-local function load_schemas()
-    local schema_files = {
-        ["main"]    = string.format("%s/telemetry/main.schema.json", cfg.schema_path),
-        ["crash"]   = string.format("%s/telemetry/crash.schema.json", cfg.schema_path),
-        ["core"]    = string.format("%s/telemetry/core.schema.json", cfg.schema_path),
-        ["vacuous"] = string.format("%s/telemetry/vacuous.schema.json", cfg.schema_path),
-    }
-    for k,v in pairs(schema_files) do
-        local fh = assert(io.input(v))
-        local schema = fh:read("*a")
-        schemas[k] = rjson.parse_schema(schema)
-    end
+
+local function load_schema(doctype)
+    local file = string.format("%s/telemetry/%s.schema.json", cfg.schema_path, doctype)
+    local ok, fh = pcall(io.input, file)
+    if not ok then return false end
+    local schema = fh:read("*a")
+    schemas[doctype] = rjson.parse_schema(schema)
+    return true
 end
-load_schemas()
-schemas["saved-session"]                        = schemas.main
+
+load_schema("main")
+schemas["saved-session"] = schemas.main
+load_schema("vacuous")
 
 local uri_config = {
     telemetry = {
@@ -291,7 +289,14 @@ local function process_uri(hsr)
         end
     end
 
-    return msg, schemas[msg.Fields.docType] or schemas.vacuous
+    local doctype = msg.Fields.docType
+    if type(doctype) ~= "string" or string.find(doctype, "[^-0-9a-zA-Z_]") then
+        return msg, schemas.vacuous
+    elseif not schemas[doctype] and not load_schema(doctype) then
+        return msg, schemas.vacuous
+    else
+        return msg, schemas[doctype]
+    end
 end
 
 
